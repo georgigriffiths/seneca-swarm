@@ -1,4 +1,5 @@
 'strict'
+
 module.exports = function swarm (options) {
   var seneca = this
   var plugin = 'swarm'
@@ -28,11 +29,10 @@ module.exports = function swarm (options) {
           },
           sequence: [{
             role: 'docker-machine',
-            cmd: 'machine-command',
-            command: 'status',
-            key$: 'status'
+            cmd: 'info',
+            key$: 'info',
+            exit$: 'out && !out.error && out.state === "Running"'
           }, {
-            if$: '$.status == "Stopped" || $.status == "Error"',
             role: 'docker-machine',
             cmd: 'machine-command',
             command: 'rm',
@@ -40,10 +40,8 @@ module.exports = function swarm (options) {
               force: true
             }
           }, {
-            if$: '$.status != "Running"',
             role: plugin,
-            cmd: 'create-machine',
-            exit$: '$.status === "Running"'
+            cmd: 'create-machine'
           }, {
             role: plugin,
             cmd: 'swarm-leader',
@@ -112,10 +110,30 @@ module.exports = function swarm (options) {
           role: plugin,
           cmd: 'create-machine'
         }, {
+          role: 'docker-machine',
+          cmd: 'info',
+          out$: {
+            _: 'get',
+            args: 'ip'
+          },
+          key$: 'machine_ip'
+        }, {
           role: 'docker',
           command: 'swarm init',
-          args: {
-            'advertise-addr': 'eth1'
+          exit$: '!out.error'
+        }, {
+          role: 'docker',
+          command: 'swarm init',
+          $args: {
+            '$advertise-addr': '$.machine_ip'
+          },
+          exit$: '!out.error'
+        }, {
+          role: 'docker',
+          command: 'swarm init',
+          $args: {
+            '$advertise-addr': '$.machine_ip',
+            '$listen-addr': '$.machine_ip'
           }
         }]
       }
@@ -169,6 +187,7 @@ module.exports = function swarm (options) {
           replicas: msg.managers,
           type: 'manager'
         }, {
+          if$: '$.replicas',
           role: plugin,
           cmd: 'manage',
           replicas: msg.workers,
@@ -271,6 +290,13 @@ module.exports = function swarm (options) {
   }
 
   seneca.ready(function () {
+    if (process.argv[2] === 'start') {
+      seneca.act({
+        role: plugin,
+        cmd: 'start'
+      })
+    }
+
     if (process.argv[2] === 'fleet') {
       seneca.act({
         role: plugin,
